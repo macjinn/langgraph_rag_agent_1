@@ -1,0 +1,19 @@
+##무시할 폴더
+venv/
+rawdata/
+findata/
+
+__pycache__/
+*.pyc
+
+
+##무시할 파일
+.env
+
+# Chroma DB 제거
+**/chroma_db/
+*.sqlite3
+
+# PyTorch 라이브러리 제거
+*.dll
+*.lib
