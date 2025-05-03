@@ -2,13 +2,17 @@
 venv/
 rawdata/
 findata/
+chroma_db/
+
 
 __pycache__/
 *.pyc
 
 
 ##무시할 파일
-.env
+*.env
+*.json
+
 
 # Chroma DB 제거
 **/chroma_db/
