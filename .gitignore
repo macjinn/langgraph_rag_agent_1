@@ -1,8 +1,7 @@
 ##무시할 폴더
-venv
-rawdata
-findata
-chroma_db
+venv/
+rawdata/
+findata/chroma_db/
 
 
 __pycache__/
