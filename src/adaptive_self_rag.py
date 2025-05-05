@@ -50,7 +50,13 @@ import gradio as gr
 # 2. 임베딩 및 DB 설정
 #############################
  
-embeddings_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+embeddings_model = HuggingFaceEmbeddings(model_name="kakaobank/kf-deberta-base")
+
+###모델 종류
+#kakaobank/kf-deberta-base
+#sentence-transformers/all-MiniLM-L6-v2 (원본)
+##토큰 수가 가장 적절 , gpu 가속 가능
+
 
 # Chroma DB 경로
 CHROMA_DIR = "C:/Users/sj/Documents/CAPD/langgraph_rag_agent//findata/chroma_db"
