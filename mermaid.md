@@ -37,7 +37,7 @@ graph TD;
 	search_data_filter_documents(filter_documents)
 	search_data_search_demand_deposit --> search_data_filter_documents;
 	search_data_search_fixed_deposit --> search_data_filter_documents;
-	search_data_search_loan --> search_Data_filter_documents;
+	search_data_search_loan --> search_data_filter_documents;
 	search_data_analyze_question -.-> search_data_search_fixed_deposit;
 	search_data_analyze_question -.-> search_data_search_demand_deposit;
 	serach_data_analyze_question -.-> search_data_search_loan;
