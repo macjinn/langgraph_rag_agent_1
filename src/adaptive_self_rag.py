@@ -50,7 +50,7 @@ import gradio as gr
 # 2. 임베딩 및 DB 설정
 #############################
  
-embeddings_model = HuggingFaceEmbeddings(model_name="kakaobank/kf-deberta-base")
+embeddings_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 ###모델 종류
 #kakaobank/kf-deberta-base
@@ -62,14 +62,16 @@ embeddings_model = HuggingFaceEmbeddings(model_name="kakaobank/kf-deberta-base")
 CHROMA_DIR = "C:/Users/sj/Documents/CAPD/langgraph_rag_agent//findata/chroma_db"
 
 # JSON 데이터 경로
-LOAN_JSON_PATH = "C:/Users/sj/Documents/CAPD/langgraph_rag_agent//findata/loan_people.json"
+LOAN_JSON_PATH = "C:/Users/sj/Documents/CAPD/langgraph_rag_agent//findata/loan.json"
 FIXED_JSON_PATH = "C:/Users/sj/Documents/CAPD/langgraph_rag_agent//findata/fixed_deposit.json"
 DEMAND_JSON_PATH = "C:/Users/sj/Documents/CAPD/langgraph_rag_agent//findata/demand_deposit.json"
+SAVINGS_JSON_PATH = "C:/Users/sj/Documents/CAPD/langgraph_rag_agent//findata/installment_savings.json"
 
 # DB 이름
-LOAN_COLLECTION = "loan_people"
+LOAN_COLLECTION = "loan"
 FIXED_COLLECTION = "fixed_deposit"
 DEMAND_COLLECTION = "demand_deposit"
+SAVINGS_COLLECTION = "installment_savings"
 
 # 정기예금 DB
 fixed_deposit_db = Chroma(
@@ -85,10 +87,17 @@ demand_deposit_db = Chroma(
     persist_directory=CHROMA_DIR,
 )
 
-#대출상품 DB
+#주택담보 + 개인신용 대출상품 DB
 loan_db = Chroma(
     embedding_function=embeddings_model,
     collection_name=LOAN_COLLECTION,
+    persist_directory=CHROMA_DIR,
+)
+
+# 적금상품 DB
+savings_db = Chroma(
+    embedding_function = embeddings_model,
+    collection_name=SAVINGS_COLLECTION,
     persist_directory=CHROMA_DIR,
 )
 
@@ -125,6 +134,12 @@ if not loan_db._collection.count():
     loan_docs = load_documents_from_json(LOAN_JSON_PATH)
     loan_db.add_documents(loan_docs)
     print(f"[INFO] {len(loan_docs)} loan docs ingested.")
+
+if not savings_db._collection.count():
+    print("[INFO] savings DB is empty. Ingesting documents...")
+    savings_docs = load_documents_from_json(SAVINGS_JSON_PATH)
+    savings_db.add_documents(savings_docs)
+    print(f"[INFO] {len(savings_docs)} savings docs ingested.")
 
 
 #############################
@@ -166,8 +181,19 @@ def search_loan(query: str) -> List[Document]:
         return docs
     return [Document(page_content="관련 대출 상품정보를 찾을 수 없습니다.")]
 
+@tool
+def search_savings(query:str) -> List[Document]:
+    """
+    Search for savings (적금) product information using semantic similarity.
+    This tool retrieves products matching the user's query, such as flexible withdrawal or interest features.
+    """
+    docs=savings_db.similarity_search(query,k=1)
+    if len(docs)>0:
+        return docs
+    return [Document(page_content="관련 적금 상품정보를 찾을 수 없습니다.")]
 
-tools = [search_fixed_deposit, search_demand_deposit, search_loan]
+
+tools = [search_fixed_deposit, search_demand_deposit, search_loan, search_savings]
 
 
 #############################
@@ -409,7 +435,7 @@ def grade_generation_self(state: "SelfRagOverallState") -> str:
     if hallucination_grade.binary_score == "yes":
         relevance_grade = retrieval_grader_binary.invoke({
             "question": state['question'],
-            "generation": state['generation']
+            "document": state['generation']
         })
         print("--- 답변-질문 관련성 평가 ---")
         if relevance_grade.binary_score == "yes":
@@ -598,6 +624,18 @@ def search_loan_subgraph(state: SearchState):
         return {"documents":docs}
     else:
         return {"documents": [Document(page_content="관련 대출 상품정보를 찾을 수 없습니다.")]}
+    
+def search_savings_subgraph(state:SearchState):
+    """
+    적금 상품 검색 (서브 그래프)
+    """
+    question=state["question"]
+    print("--- 적금 상품 검색 ---")
+    docs=search_savings.invoke(question)
+    if len(docs)>0:
+        return {"documents":docs}
+    else:
+        return {"documents": [Document(page_content="관련 적금 상품정보를 찾을 수 없습니다.")]}
 
 def filter_documents_subgraph(state: SearchState):
     """
@@ -623,14 +661,14 @@ def filter_documents_subgraph(state: SearchState):
 # --- 질문 라우팅 (서브 그래프 전용) ---
 class SubgraphToolSelector(BaseModel):
     """Selects the most appropriate tool for the user's question."""
-    tool: Literal["search_fixed_deposit", "search_demand_deposit","search_loan"] = Field(
+    tool: Literal["search_fixed_deposit", "search_demand_deposit","search_loan","search_savings"] = Field(
         description="Select one of the tools: search_fixed_deposit, search_demand_deposit, search_loan based on the user's question."
     )
 
 class SubgraphToolSelectors(BaseModel):
     """Selects all tools relevant to the user's question."""
     tools: List[SubgraphToolSelector] = Field(
-        description="Select one or more tools: search_fixed_deposit, search_demand_deposit, search_loan based on the user's question."
+        description="Select one or more tools: search_fixed_deposit, search_demand_deposit, search_loan, search_savings based on the user's question."
     )
 
 structured_llm_SubgraphToolSelectors = llm.with_structured_output(SubgraphToolSelectors)
@@ -641,6 +679,7 @@ Use the following guidelines:
 - For fixed deposit product queries, use the search_fixed_deposit tool.
 - For demand deposit product queries, use the search_demand_deposit tool.
 - For loan product queries, use the search_loan tool.
+- For savings product queries, use the search_savings tool.
 Always choose the appropriate tools based on the user's question.
 """)
 subgraph_route_prompt = ChatPromptTemplate.from_messages(
@@ -671,8 +710,10 @@ def route_datasources_tool_search(state: ToolSearchState) -> Sequence[str]:
         return ['search_demand_deposit']
     elif set(state['datasources']) == {"search_loan"}:
         return ['search_loan']
+    elif set(state["datasources"]) == {"search_savings"}:
+        return ['search_savings']
     # 모두 다 선택되거나 모호할 때는 세 도구 모두 실행
-    return ['search_fixed_deposit', 'search_demand_deposit', 'search_loan']
+    return ['search_fixed_deposit', 'search_demand_deposit', 'search_loan','search_savings']
 
 
 # --- 서브 그래프 빌더 구성 ---
@@ -684,6 +725,7 @@ search_builder.add_node("analyze_question", analyze_question_tool_search)
 search_builder.add_node("search_fixed_deposit", search_fixed_deposit_subgraph)
 search_builder.add_node("search_demand_deposit", search_demand_deposit_subgraph)
 search_builder.add_node("search_loan",search_loan_subgraph)
+search_builder.add_node("search_savings",search_savings_subgraph)
 search_builder.add_node("filter_documents", filter_documents_subgraph)
 
 # 엣지 구성
@@ -695,12 +737,14 @@ search_builder.add_conditional_edges(
         "search_fixed_deposit": "search_fixed_deposit",
         "search_demand_deposit": "search_demand_deposit",
         "search_loan": "search_loan",
+        "search_savings": "search_savings",
     }
 )
-# 두 검색 노드 모두 실행한 후 각각의 결과는 filter_documents로 팬인(fan-in) 처리
+# 검색 노드 모두 실행한 후 각각의 결과는 filter_documents로 팬인(fan-in) 처리
 search_builder.add_edge("search_fixed_deposit", "filter_documents")
 search_builder.add_edge("search_demand_deposit", "filter_documents")
 search_builder.add_edge("search_loan","filter_documents")
+search_builder.add_edge("search_savings","filter_documents")
 search_builder.add_edge("filter_documents", END)
 
 
