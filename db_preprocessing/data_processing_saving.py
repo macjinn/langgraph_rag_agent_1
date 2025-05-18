@@ -26,10 +26,21 @@ savings_detail_patterns = {
 def parse_savings_detail(text):
     metadata = {}
     text = clean(text)
+
+    # 먼저 "가입대상" 내용 추출
+    join_target_match = re.search(savings_detail_patterns["가입대상"], text)
+    join_target_text = join_target_match.group(1).strip() if join_target_match else ""
+
     for key, pattern in savings_detail_patterns.items():
         match = re.search(pattern, text)
         if match:
-            metadata[key] = match.group(1).strip()
+            value = match.group(1).strip()
+            if key == "우대조건":
+                # 가입대상 내용이 우대조건 안에 있다면 제거
+                value = value.replace(join_target_text, "").strip(" ,;:/")
+                value = value.replace("가입대상","")
+            metadata[key] = value
+
     return metadata
 
 # Selenium 스크래핑 시작
@@ -124,8 +135,8 @@ for idx, item in enumerate(results):
         f"최고금리(우대금리포함,  %): {max_rate}\n"
         f"이자지급방식: {interest_type}\n"
         f"은행 최종제공일: {pub_date}\n"
-        f"가입방법: {join_method}\n"
         f"우대조건: {pref_cond}\n"
+        f"가입방법: {join_method}\n"
         f"가입대상: {join_target}\n"
         f"기타 유의사항: {caution}\n"
         f"만기후 이자율: {maturity_rate}"
@@ -142,7 +153,7 @@ for idx, item in enumerate(results):
         "id": f"적금_{idx+1:03d}",
         "bank": bank,
         "product_name": product,
-        "type": "정기적금",
+        "type": "적금",
         "content": content,
         "key_summary": key_summary,
         "metadata": item
